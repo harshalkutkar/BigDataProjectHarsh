@@ -1,0 +1,17 @@
+application: halkutka-project
+version: 1
+runtime: php
+api_version: 1
+threadsafe: yes
+
+handlers:
+- url: /favicon\.ico
+  static_files: favicon.ico
+  upload: favicon\.ico
+
+  # Serve php scripts.
+- url: /(.+\.php)
+  script: \1
+
+- url: /.*
+  script: main.php
