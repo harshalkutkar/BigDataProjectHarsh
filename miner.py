@@ -51,6 +51,8 @@ twitapi = twitter.Api(consumer_key='oab3F9Cx5lINWlSadHAL50spo',
 #MODI_ONLY_PUNE
 result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[18.520430, 73.856744, '150km'],count=50)
 
+#MODI_ONLY_HYDERABAD
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[17.385044, 78.486671, '150km'],count=50)
 
 print str(result)
 
