@@ -27,12 +27,29 @@ twitapi = twitter.Api(consumer_key='oab3F9Cx5lINWlSadHAL50spo',
 
 #query with geocode
 #result = twitapi.GetSearch(term="\"Arvind Kejriwal\" OR \"Narendra Modi\"", geocode=[19.016339, 72.840289, '100km'], count=50)
-result = twitapi.GetSearch(term="\"Arvind Kejriwal\" "
-                                "OR \"Narendra Modi\" "
-                                "OR \"Manmohan Singh\" "
-                                "OR \"Rahul Gandhi\" "
-                                "OR \"Sonia Gandhi\"",
-                                count=20)
+
+#MODI_ONLY
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", since_id='456135396947745920',count=200)
+
+#MODI_ONLY_MUMBAI
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[19.016339, 72.840289, '150km'], count=50)
+
+
+#MODI_ONLY_CHENNAI
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[13.052414, 80.250825, '150km'],count=50)
+
+
+#MODI_ONLY_GANDHINAGAR
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[23.224820, 72.646377, '150km'],count=50)
+
+#MODI_ONLY_DELHI
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[28.635308, 77.224960, '150km'],count=50)
+
+#MODI_ONLY_BANGALORE
+#result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[12.971599, 77.594563, '150km'],count=50)
+
+#MODI_ONLY_PUNE
+result = twitapi.GetSearch(term="\"Narendra Modi\" OR \"#namo\" ", geocode=[18.520430, 73.856744, '150km'],count=50)
 
 
 print str(result)
@@ -47,11 +64,11 @@ with open('tweets.json', "a") as outfile:
             y['user'] = x.user.name
             y['text'] = x.text
             y['created_at'] = x.created_at_in_seconds
-            if (x.location):
+            if x.location:
                 y['location'] = x.location
             else:
-                y['location'] = x.user.location
-
+                if x.user.location:
+                    y['location'] = x.user.location
             y['time_zone'] = x.user.time_zone
 
             try:
