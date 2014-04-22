@@ -1,267 +1,159 @@
 #!/usr/bin/env python
 #
-# Copyright 2011-2013 Chris Baus christopher@baus.net @baus on Twitter
+# Byte 4 Version 1
 #
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
+# Copyright 2/2014 Jennifer Mankoff
 #
-#     http://www.apache.org/licenses/LICENSE-2.0
+# Licensed under GPL v3 (http://www.gnu.org/licenses/gpl.html)
 #
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-# This is a short example program which shows how to use Twitter's
-# "Sign In With Twitter" authentication with Google App Engine.
-#
-# See README.markdown
-#
-import os
-import twitter
-import oauthclient
-import functools
-import jinja2
-import oauthclient.forms
-import oauthclient.models
-from google.appengine.api import users
 
-
-
-jinja_environment = jinja2.Environment(loader=jinja2.FileSystemLoader(os.path.join(os.path.dirname(__file__), "templates")))
-
-from google.appengine.ext import db
+# standard imports
+import webapp2
+import json
+from google.appengine.api import files
+from google.appengine.api import memcache
+from apiclient.discovery import build
 from google.appengine.ext import webapp
 from google.appengine.ext.webapp.util import run_wsgi_app
-from gaesessions import get_current_session
-from gaesessions import delete_expired_sessions
+from oauth2client.appengine import AppAssertionCredentials
+from django.utils import simplejson
+import httplib2
+import urllib
 
-FILE_UPLOAD_HANDLERS = ('django.core.files.uploadhandler.MemoryFileUploadHandler',)
-FILE_UPLOAD_MAX_MEMORY_SIZE = 2621440 # the django default: 2.5MB
+
+import logging
+
+# import for checking whether we are running on localhost or remotely
+import os
+
+# make sure to add this to app.yaml too
+from webapp2_extras import jinja2
 
 
-class Profile(db.Model):
-    twitter_access_token_key = db.StringProperty()
-    twitter_access_token_secret = db.StringProperty()
-    example_data = db.StringProperty()
+# BigQuery API Settings
+_PROJECT_NUMBER = '278388745819'
 
-def authenticated(method):
-    """Decorate request handlers with this method to restrict to access to authenticated users."""
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        session = get_current_session()
-        twitter_screen_name = session.get("twitter_screen_name")
-        if twitter_screen_name is None:
-            self.error(403)
-            return
+# Define your production Cloud SQL instance information.
+_DATABASE_NAME = 'tweets:election_tweets'
 
-        self.profile = Profile.get_by_key_name(twitter_screen_name)
-        if self.profile is None:
-            self.profile = Profile(key_name = twitter_screen_name)
-            self.profile.save()
-                
-        return method(self, *args, **kwargs)
-    return wrapper
+logging.info("setting up credentials")
+credentials = AppAssertionCredentials(scope='https://www.googleapis.com/auth/bigquery')
+http        = credentials.authorize(httplib2.Http(memcache))
+service     = build("bigquery", "v2", http=http)
+logging.info("done setting up credentials")
 
-def administrator_with_login_redirect(method):
-    """Decorate with this method to restrict to site admins. Also redirect to a login page if the user
-       isn't logged in."""
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        user = users.get_current_user()
-        if user:
-            if not users.is_current_user_admin():
-                return self.error(403)
-            else:
-                return method(self, *args, **kwargs)
+# we are adding a new class that will
+# help us to use jinja. MainHandler will sublclass this new
+# class (BaseHandler), and BaseHandler is in charge of subclassing
+# webapp2.RequestHandler
+def to_json(data):
+    json.encode(data)
+
+class BaseHandler(webapp2.RequestHandler):
+
+    @webapp2.cached_property
+    def jinja2(self):
+        # Returns a Jinja2 renderer cached in the app registry.
+
+        return jinja2.get_jinja2(app=self.app)
+
+
+
+    # lets jinja render our response
+    def render_response(self, _template, context):
+        values = {'url_for': self.uri_for}
+
+
+        logging.info(context)
+        values.update(context)
+        self.response.headers['Content-Type'] = 'text/html'
+
+        # Renders a template and writes the result to the response.
+        rv = self.jinja2.render_template(_template, **values)
+        self.response.headers['Content-Type'] = 'text/html; charset=utf-8'
+        self.response.write(rv)
+
+
+class MainHandler(BaseHandler):
+    def get(self):
+        """default landing page"""
+
+        #====================================================================
+        # Sample query for getting #births by state
+        #====================================================================
+
+        states = []
+
+        logging.info("running query 1")
+        query_string = "SELECT AVG(sentiment)*1000 FROM [tweets.election_tweets] WHERE (REGEXP_MATCH(location,r'(Pune)')) AND (REGEXP_MATCH(text,r'(Modi)'));".format(_DATABASE_NAME)
+        births = self.run_query(query_string, filename='data/states.json')
+        # similar to the google SQL work we did in byte4, the stuff we
+        # care about is in rows
+        rows = births[u'rows']
+        for row in rows:
+            name = row[u'f'][0][u'v']
+            state = {'y': unicode.encode(name), 'x':'Modi'}
+            states = states + [state]
+
+
+        logging.info("running query 2")
+        query_string = "SELECT AVG(sentiment)*1000 FROM [tweets.election_tweets] WHERE (REGEXP_MATCH(location,r'(Pune)')) AND (REGEXP_MATCH(text,r'(Kejriwal)'));".format(_DATABASE_NAME)
+        births = self.run_query(query_string, filename='data/states.json')
+        # similar to the google SQL work we did in byte4, the stuff we
+        # care about is in rows
+        rows = births[u'rows']
+        for row in rows:
+            name = row[u'f'][0][u'v']
+            state = {'y': unicode.encode(name), 'x':'Kejriwal'}
+            states = states + [state]
+
+
+
+        array = dict()
+        array['values'] = states
+        array['key'] = 'Sentiment'
+        array['color'] = '#2ca02c'
+
+
+        outer_array = []
+        outer_array.append(array)
+
+
+
+
+        context = {"states": states, "data": (json.dumps(outer_array, separators=(',', ':'), indent=4).decode('utf8'))}
+
+        # and render the response
+        self.render_response('index.html', context)
+
+
+    # run the query specified in query_string, but if local open filename instead
+    def run_query(self, query_string, filename=None, timeout=10000):
+        if (os.getenv('SERVER_SOFTWARE') and
+            os.getenv('SERVER_SOFTWARE').startswith('Google App Engine/')):
+
+
+            # set up the query
+            query = {'query':query_string, 'timeoutMs':timeout}
+            logging.info(query)
+            # service is the oauth2 setup that we created above
+            jobCollection = service.jobs()
+            # project number is the project number you should have
+            # defined in your app
+            return jobCollection.query(projectId=_PROJECT_NUMBER,body=query).execute()
         else:
-            self.redirect(users.create_login_url("/admin"))
+            # open the data stored in a file called filename
+            logging.info("loading file")
+            try:
+                fp = open(filename)
+                return simplejson.load(fp)
+            except IOError:
+                logging.info("failed to load file %s", filename)
+                return None
+            except TypeError:
+                return None
 
-    return wrapper
+app = webapp2.WSGIApplication([
+    ('/', MainHandler)
+], debug=True)
 
-class Admin(webapp.RequestHandler):
-    @administrator_with_login_redirect
-    def get(self):
-        template_values = {}
-        template_values["service_formset"] = oauthclient.forms.create_service_formset()
-        template = jinja_environment.get_template('admin.html')
-        self.response.out.write(template.render(template_values))
-
-    @administrator_with_login_redirect
-    def post(self):
-        admin_formset = oauthclient.forms.create_service_formset(self.request.POST)
-        if oauthclient.forms.save_formset(admin_formset):
-            self.redirect("/")
-        else:
-            self.redirect("/admin")
-
-class MainHandler(webapp.RequestHandler):
-    def get(self):
-        twitter_service = oauthclient.models.OAuthService.get_by_key_name("twitter")
-        template = None
-        if twitter_service is None:
-            template = jinja_environment.get_template("register_services.html")
-        else:
-            template = jinja_environment.get_template("signin.html")
-
-        self.response.out.write(template.render())
-
-class ProfileHandler(webapp.RequestHandler):
-    def render_template(self, profile_saved):
-        template_values = {"twitter_screen_name": self.profile.key().id_or_name(),
-                           "example_data": self.profile.example_data if self.profile.example_data is not None else "",
-                           "profile_saved": profile_saved}
-
-        template = jinja_environment.get_template("profile.html")
-        self.response.out.write(template.render(template_values))
-
-
-    @authenticated
-    def get(self):
-        return self.render_template(False)
-
-    @authenticated
-    def post(self):
-        self.profile.example_data = self.request.get("example_data")
-        self.profile.save()
-        return self.render_template(True)
-        
-class GetTweets(webapp.RequestHandler):
-    def render_template(self, profile_saved):
-
-        #part where you query
-
-        twitapi = twitter.Api(consumer_key='oab3F9Cx5lINWlSadHAL50spo',
-                           consumer_secret='DyYPedkhKDgru6H53esW0W2q7e6nGEEYaLA7iTPXLrTOf63hkm',
-                           access_token_key='21637668-a2mvcgdOGRE6C5WKA6w6Uim0m4oIfmUxA75oMKkeu',
-                           access_token_secret='IvqHYTywacdZc0vA3dOmgV4rVC1KIAoPC3n2gT8kLmto0',
-                           cache=None)
-
-
-        #users = twitapi.GetFriends()
-        #print [u.name for u in users]
-
-
-        result = twitapi.GetSearch(term='Arvind' , count=50)
-
-
-
-        template_values = {"twitter_screen_name": self.profile.key().id_or_name(),
-                           "example_data": self.profile.example_data if self.profile.example_data is not None else "",
-                           "profile_saved": profile_saved,
-                           "result": result}
-
-        template = jinja_environment.get_template("gettweets.html")
-        self.response.out.write(template.render(template_values))
-
-
-    @authenticated
-    def get(self):
-        return self.render_template(False)
-
-    @authenticated
-    def post(self):
-        self.profile.example_data = self.request.get("example_data")
-        self.profile.save()
-        return self.render_template(True)
-
-class SignInWithTwitter(webapp.RequestHandler):
-    def get(self):
-        twitter_service = oauthclient.models.OAuthService.get_by_key_name("twitter")
-
-        key, secret = oauthclient.retrieve_service_request_token(twitter_service.request_token_url,
-                                                                 twitter_service.consumer_key,
-                                                                 twitter_service.consumer_secret)
-        session = get_current_session()
-        if session.is_active():
-            session.terminate()
-        session['twitter_request_key'] = key
-        session['twitter_request_secret'] = secret
-
-        self.redirect(oauthclient.generate_authorize_url(twitter_service.authenticate_url, key))
-
-
-class TwitterAuthorized(webapp.RequestHandler):
-
-
-    def get(self):
-        twitter_service = oauthclient.models.OAuthService.get_by_key_name("twitter")
-        verifier = self.request.get("oauth_verifier")
-        session = get_current_session()
-        key = session.get('twitter_request_key')
-        secret = session.get('twitter_request_secret')
-        if key is None or secret is None:
-            self.error(500)
-            return
-
-        key, secret = oauthclient.exchange_request_token_for_access_token(twitter_service.consumer_key,
-                                                                          twitter_service.consumer_secret,
-                                                                          twitter_service.access_token_url,
-                                                                          verifier,
-                                                                          key,
-                                                                          secret)
-
-        twitapi = twitter.Api(twitter_service.consumer_key,
-                              twitter_service.consumer_secret,
-                              key,
-                              secret,
-                              cache=None)
-
-        twituser = twitapi.VerifyCredentials()
-        profile = Profile.get_by_key_name(twituser.screen_name)
-        if profile is None:
-            profile = Profile(key_name=twituser.screen_name)
-
-        profile.twitter_access_token_key = key
-        profile.twitter_access_token_secret = secret
-        profile.save()
-        session["twitter_screen_name"] = twituser.screen_name
-        self.redirect("/tweets")
-
-
-class SignOut(webapp.RequestHandler):
-    def get(self):
-        session = get_current_session()
-        if session.is_active():
-            session.terminate()
-        self.redirect("/")
-
-class CleanupSessions(webapp.RequestHandler):
-    def get(self):
-        while not delete_expired_sessions():
-            pass
-
-
-class RegisterServices(webapp.RequestHandler):
-    @administrator_with_login_redirect
-    def get(self):
-        if oauthclient.models.OAuthService.get_by_key_name("twitter") is None:
-            twitter_service = oauthclient.models.OAuthService(key_name="twitter")
-            twitter_service.display_name = "Twitter"
-            twitter_service.request_token_url = "https://api.twitter.com/oauth/request_token"
-            twitter_service.authorize_url = "https://api.twitter.com/oauth/authenticate"
-            twitter_service.access_token_url = "https://api.twitter.com/oauth/access_token"
-            twitter_service.authenticate_url = "https://api.twitter.com/oauth/authenticate"
-            twitter_service.save()
-
-        self.redirect("/admin")
-
-
-
-application = webapp.WSGIApplication([('/', MainHandler),
-                                      ('/registerservices', RegisterServices),
-                                      ('/admin', Admin),
-                                      ('/profile', ProfileHandler),
-                                      ('/tweets', GetTweets),
-                                      ('/signin', SignInWithTwitter),
-                                      ('/services/twitter/authorized', TwitterAuthorized),
-                                      ('/signout', SignOut),
-                                      ('/cleanup_sessions', CleanupSessions)],
-                                         debug=True)
-
-def main():run_wsgi_app(application)
-
-if __name__ == '__main__':
-    main()

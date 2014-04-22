@@ -8,16 +8,32 @@ env_variables:
   DJANGO_SETTINGS_MODULE: 'settings'
 
 libraries:
+- name: webapp2
+  version: "2.5.2"
+- name: MySQLdb
+  version: "latest"
 - name: jinja2
   version: latest
-
+- name: numpy
+  version: latest
 - name: django
   version: latest
 
+
 handlers:
-- url: .*
-  script: main.py
+- url: /.*
+  script: main.app
   
 - url: /home
   script: main.py
+  
+- url: /data
+  static_dir: data
+  application_readable: true
+  
+- url: /nvd3
+  static_dir: nvd3
+
+- url: /d3
+  static_dir: d3
 
